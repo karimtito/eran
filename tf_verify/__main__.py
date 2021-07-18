@@ -405,6 +405,11 @@ assert config.netname, 'a network has to be provided for analysis.'
 netname = config.netname
 assert os.path.isfile(netname), f"Model file not found. Please check \"{netname}\" is correct."
 filename, file_extension = os.path.splitext(netname)
+clean_name=os.path.basename(filename)
+
+if config.logdir is not None:
+    logdir = config.logdir
+    log_flag = True
 
 is_trained_with_pytorch = file_extension==".pyt"
 is_saved_tf_model = file_extension==".meta"
@@ -905,7 +910,8 @@ elif config.geometric:
             assert not cex_found or not ok_box, 'ERROR! Found counter-example, but image was verified with box!'
             assert not cex_found or not ok_poly, 'ERROR! Found counter-example, but image was verified with poly!'
 
-
+   
+    
     else:
         for i, test in enumerate(tests):
             if config.from_test and i < config.from_test:
@@ -1329,6 +1335,7 @@ elif config.spatial:
     print(f'analysis precision {verified_images} / {correctly_classified_images}')
 
 else:
+    
     target = []
     if config.target != None:
         targetfile = open(config.target, 'r')
@@ -1342,7 +1349,11 @@ else:
         epsilons = csv.reader(epsfile, delimiter=',')
         for i, val in enumerate(epsilons):
             eps_array = val  
-            
+    
+    if log_flag:
+        img_results = []
+        status=''        
+    
     for i, test in enumerate(tests):
         if config.from_test and i < config.from_test:
             continue
@@ -1415,6 +1426,8 @@ else:
                 if is_verified:
                     print("img", i, "Verified", int(test[0]))
                     verified_images+=1
+                    if log_flag:
+                        status='verified'
                 elif domain == 'refinegpupoly':
                     num_outputs = len(nn.weights[-1])
 
@@ -1460,6 +1473,8 @@ else:
                     if is_verified:
                         print("img", i, "Verified", int(test[0]))
                         verified_images += 1
+                        if log_flag:
+                            status='verified'
                     else:
                         if x != None:
                             adv_image = np.array(x)
@@ -1469,13 +1484,20 @@ else:
                                 # print("img", i, "Verified unsafe with adversarial image ", adv_image, "cex label", cex_label, "correct label ", int(test[0]))
                                 print("img", i, "Verified unsafe against label ", res, "correct label ", int(test[0]))
                                 unsafe_images += 1
-
+                                if log_flag:
+                                    status='unsafe'
                             else:
                                 print("img", i, "Failed")
+                                if log_flag:
+                                    status='failed'
                         else:
                             print("img", i, "Failed")
+                            if log_flag:
+                                status='failed'
                 else:
                     print("img", i, "Failed")
+                    if log_flag:
+                        status='failed'
             else:
                 if domain.endswith("poly"):
                     perturbed_label, _, nlb, nub, failed_labels, x = eran.analyze_box(specLB, specUB, "deeppoly",
@@ -1511,6 +1533,8 @@ else:
                 if (perturbed_label==label):
                     print("img", i, "Verified", label)
                     verified_images += 1
+                    if log_flag:
+                        status='verified'
                 else:
                     if complete==True and failed_labels is not None:
                         failed_labels = list(set(failed_labels))
@@ -1519,6 +1543,8 @@ else:
                         if(verified_flag==True):
                             print("img", i, "Verified as Safe using MILP", label)
                             verified_images += 1
+                            if log_flag:
+                                status='unsafe'
                         else:
                             if adv_image != None:
                                 cex_label,_,_,_,_,_ = eran.analyze_box(adv_image[0], adv_image[0], 'deepzono', config.timeout_lp, config.timeout_milp, config.use_default_heuristic, approx_k=config.approx_k)
@@ -1527,10 +1553,16 @@ else:
                                     # print("img", i, "Verified unsafe with adversarial image ", adv_image, "cex label", cex_label, "correct label ", label)
                                     print("img", i, "Verified unsafe against label ", cex_label, "correct label ", label)
                                     unsafe_images+=1
+                                    if log_flag:    
+                                        status='unsafe'
                                 else:
                                     print("img", i, "Failed with MILP, without a adeversarial example")
+                                    if log_flag:
+                                        status='failed'
                             else:
                                 print("img", i, "Failed with MILP")
+                                if log_flag:
+                                    status='failed'
                     else:
                     
                         if x != None:
@@ -1541,13 +1573,21 @@ else:
                                 # print("img", i, "Verified unsafe with adversarial image ", x, "cex label ", cex_label, "correct label ", label)
                                 print("img", i, "Verified unsafe against label ", cex_label, "correct label ", label)
                                 unsafe_images += 1
+                                if log_flag:
+                                    status='unsafe'
                             else:
                                 print("img", i, "Failed, without a adversarial example")
+                                if log_flag:
+                                    status='failed'
                         else:
                             print("img", i, "Failed")
+                            if log_flag:
+                                status='failed'
 
             end = time.time()
             cum_time += end - start # only count samples where we did try to certify
+            img_result = {'net name':clean_name,'status':status,'time':end-start}
+            img_results.append(img_result)
         else:
             print("img",i,"not considered, incorrectly classified")
             end = time.time()
@@ -1559,5 +1599,11 @@ else:
               f"time: {end - start:.3f}; {0 if cum_time==0 else cum_time / correctly_classified_images:.3f}; {cum_time:.3f}")
 
 
-
+    if log_flag:
+        if config.logname is None:
+            logname= time.time()
+        else:
+            logname=config.logname
+        results_df = pd.DataFrame(img_results)
+        results_df.to_csv(os.path.join(logdir, logname))            
     print('analysis precision ',verified_images,'/ ', correctly_classified_images)
